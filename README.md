@@ -93,7 +93,11 @@ DETECTION_END2END/
     *   `--port 8000`: Specifies the port.
 
 3.  Open your web browser and go to `http://127.0.0.1:8000` (or your server's IP address if accessing remotely).
-
+4. Using Docker in optional:
+    '''bash
+    docker-compose up --build
+    '''
+    To run in detached mode (in the background): ''' docker-compose up --build -d'''
 ## Usage
 
 1.  **Upload Images:** Click the "Upload Images" button and select one or more image files.
