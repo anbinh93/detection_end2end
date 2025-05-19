@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Object Detection Service</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="controls-panel">
+            <h2>Controls</h2>
+
+            <form id="uploadAndControlForm"> <!-- Simplified form wrap -->
+                <div class="form-group">
+                    <label for="files" class="file-upload-label">
+                        <span id="uploadButtonText">🖼️ Upload Images</span>
+                        <input type="file" name="files" id="files" accept="image/*" multiple>
+                    </label>
+                    <span id="fileCount" class="file-name-display">No files chosen</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="model_choice">Select Model:</label>
+                    <select name="model_choice" id="model_choice" class="styled-select">
+                        {% if available_models %}
+                            {% for model in available_models %}
+                                <option value="{{ model.value }}" {% if model.value == selected_model_on_load %}selected{% endif %}>
+                                    {{ model.name }}
+                                </option>
+                            {% endfor %}
+                        {% else %}
+                            <option value="" disabled selected>No models loaded</option>
+                        {% endif %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="confidence_threshold">Confidence Threshold: <span id="confidenceValue">{{ "%.2f"|format(current_confidence_on_load) }}</span></label>
+                    <div class="slider-container">
+                        <span>0.1</span>
+                        <input type="range" name="confidence_threshold" id="confidence_threshold"
+                               min="0.1" max="1.0" step="0.05" value="{{ current_confidence_on_load }}">
+                        <span>1.0</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Preprocessing Options:</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="apply_denoise" id="apply_denoise" {% if current_denoise_on_load %}checked{% endif %}>
+                            Denoise
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="apply_contrast" id="apply_contrast" {% if current_contrast_on_load %}checked{% endif %}>
+                            Enhance Contrast (CLAHE)
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="apply_sharpen" id="apply_sharpen" {% if current_sharpen_on_load %}checked{% endif %}>
+                            Sharpen
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-primary full-width" id="processBtn" onclick="triggerReprocessing()">Process Images</button>
+                    <button type="button" class="btn btn-success" onclick="saveAllImages()">Save Processed</button>
+                    <button type="button" class="btn btn-secondary" onclick="clearAll()">Clear All</button>
+                </div>
+            </form>
+
+            {% if not models_loaded and not available_models %}
+                <p class="error-message">Warning: No models seem to be loaded. Detection will likely fail. Check server logs.</p>
+            {% endif %}
+            <div id="userMessage" style="margin-top:1rem;"></div> <!-- For general messages -->
+
+
+            <div class="uploaded-images-list" id="uploadedImagesList">
+                <h3>Uploaded Images</h3>
+                <div class="images-container" id="imagesContainer">
+                    <!-- Uploaded images will be listed here -->
+                </div>
+            </div>
+        </aside>
+
+        <main class="results-panel">
+            <h2 class="results-title">Detection Results</h2>
+            <div class="main-display" id="mainDisplay">
+                <div class="image-display">
+                    <img id="mainImage" src="" alt="Selected Image">
+                    <div id="mainImagePlaceholder" class="image-display-placeholder">
+                        Upload images and select a thumbnail to view results.
+                    </div>
+                </div>
+                <div class="detections-summary" id="detectionsSummary">
+                    <!-- Detection results will be shown here -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let sessionId = generateSessionId();
+        let uploadedImageIds = new Set();
+        let activeImageId = null; // Track the image displayed in main view
+        let isProcessing = false; // Global flag to prevent concurrent processing
+
+        const confidenceSlider = document.getElementById('confidence_threshold');
+        const confidenceValueDisplay = document.getElementById('confidenceValue');
+        const fileInput = document.getElementById('files');
+        const fileCountDisplay = document.getElementById('fileCount');
+        const imagesContainer = document.getElementById('imagesContainer');
+        const mainImage = document.getElementById('mainImage');
+        const mainImagePlaceholder = document.getElementById('mainImagePlaceholder');
+        const detectionsSummary = document.getElementById('detectionsSummary');
+        const modelChoice = document.getElementById('model_choice');
+        const processBtn = document.getElementById('processBtn');
+        const uploadButtonText = document.getElementById('uploadButtonText');
+        const userMessage = document.getElementById('userMessage');
+        const applyDenoiseCheckbox = document.getElementById('apply_denoise');
+        const applyContrastCheckbox = document.getElementById('apply_contrast');
+        const applySharpenCheckbox = document.getElementById('apply_sharpen');
+
+        function generateSessionId() {
+            return 'session_' + Math.random().toString(36).substr(2, 12);
+        }
+
+        function showUserMessage(message, type = 'info') {
+            userMessage.textContent = message;
+            userMessage.className = `message ${type}`; // You can style .message.info, .message.error
+            if (type === 'error') userMessage.style.color = 'var(--error-color)';
+            else userMessage.style.color = 'var(--text-muted-color)';
+            setTimeout(() => userMessage.textContent = '', 3000);
+        }
+
+        function toggleLoading(isLoading, buttonText = "Process Images") {
+            isProcessing = isLoading;
+            processBtn.disabled = isLoading;
+            fileInput.disabled = isLoading; // Also disable file input during processing
+
+            const currentUploadText = uploadButtonText.textContent;
+            if (isLoading) {
+                processBtn.innerHTML = `Processing... <span class="loader"></span>`;
+                uploadButtonText.textContent = "Processing...";
+            } else {
+                processBtn.innerHTML = buttonText;
+                uploadButtonText.textContent = "🖼️ Upload Images";
+            }
+        }
+
+
+        if (confidenceSlider) {
+            confidenceSlider.oninput = function() {
+                confidenceValueDisplay.textContent = parseFloat(this.value).toFixed(2);
+            }
+            // Re-process when user STOPS dragging the slider (onchange)
+            confidenceSlider.onchange = async function() {
+                if (uploadedImageIds.size > 0) {
+                    await processUploadedImages(Array.from(uploadedImageIds), "Confidence updated");
+                }
+            }
+        }
+
+        if (modelChoice) {
+            modelChoice.onchange = async function() {
+                if (uploadedImageIds.size > 0) {
+                    await processUploadedImages(Array.from(uploadedImageIds), "Model changed");
+                }
+            }
+        }
+
+        if (fileInput) {
+            fileInput.onchange = async function() {
+                if (fileInput.files.length > 0) {
+                    fileCountDisplay.textContent = `${fileInput.files.length} file(s) selected`;
+                    await uploadFiles(fileInput.files);
+                } else {
+                    fileCountDisplay.textContent = 'No files chosen';
+                }
+            }
+        }
+        
+        async function uploadFiles(files) {
+            if (isProcessing) {
+                showUserMessage("Please wait for current processing to finish.", "warn");
+                return;
+            }
+            toggleLoading(true);
+            const formData = new FormData();
+            for (let file of files) {
+                formData.append('files', file);
+            }
+            formData.append('session_id', sessionId);
+
+            try {
+                const response = await fetch('/upload/', { method: 'POST', body: formData });
+                if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
+                const data = await response.json();
+
+                // Clear previous thumbnails before adding new ones if you want to replace
+                // imagesContainer.innerHTML = ''; // Uncomment to replace
+                // uploadedImageIds.clear(); // Uncomment to replace
+
+                addThumbnailsToDOM(data.uploaded);
+                await processUploadedImages(data.uploaded.map(img => img.id), "New images uploaded");
+            } catch (error) {
+                console.error('Error uploading files:', error);
+                showUserMessage(`Error uploading: ${error.message}`, "error");
+            } finally {
+                toggleLoading(false);
+                fileInput.value = ''; // Reset file input
+            }
+        }
+
+        function addThumbnailsToDOM(uploadedImages) {
+            uploadedImages.forEach(img => {
+                if (uploadedImageIds.has(img.id)) return; // Avoid duplicates if not clearing
+                uploadedImageIds.add(img.id);
+
+                const imageItem = document.createElement('div');
+                imageItem.className = 'image-item';
+                imageItem.setAttribute('data-image-id', img.id);
+                imageItem.innerHTML = `
+                    <div class="image-item-content">
+                        <img src="data:image/png;base64,${img.thumbnail}" alt="${img.filename}">
+                        <span class="image-filename">${img.filename}</span>
+                    </div>
+                `;
+                imageItem.onclick = () => displayProcessedImage(img.id);
+                imagesContainer.appendChild(imageItem);
+            });
+        }
+        
+        function triggerReprocessing() {
+            if (uploadedImageIds.size === 0) {
+                showUserMessage("Please upload images first.", "warn");
+                return;
+            }
+            processUploadedImages(Array.from(uploadedImageIds), "Manual re-processing");
+        }
+
+        async function processUploadedImages(imageIds, reason = "") {
+            if (isProcessing) {
+                showUserMessage("Already processing. Please wait.", "warn");
+                return;
+            }
+            if (imageIds.length === 0) return;
+            
+            toggleLoading(true, `Processing (${reason})`);
+
+            const formData = new FormData();
+            formData.append('session_id', sessionId);
+            formData.append('model_choice', document.getElementById('model_choice').value);
+            formData.append('confidence_threshold', document.getElementById('confidence_threshold').value);
+            formData.append('image_ids', imageIds.join(','));
+            formData.append('apply_denoise', applyDenoiseCheckbox.checked);
+            formData.append('apply_contrast', applyContrastCheckbox.checked);
+            formData.append('apply_sharpen', applySharpenCheckbox.checked);
+
+            try {
+                const response = await fetch('/process/', { method: 'POST', body: formData });
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({detail: "Unknown error during processing."}));
+                    throw new Error(`Processing failed: ${errorData.detail || response.statusText}`);
+                }
+                const data = await response.json();
+                updateThumbnailsAsProcessed(data.processed);
+
+                if (data.processed.length > 0) {
+                    // If no image is active OR the active image was re-processed, update main display
+                    if (!activeImageId || imageIds.includes(activeImageId)) {
+                         await displayProcessedImage(data.processed[0].id);
+                    } else { // or just refresh the currently active one if it was in the batch
+                        const activeImgData = data.processed.find(p => p.id === activeImageId);
+                        if (activeImgData) await displayProcessedImage(activeImageId);
+                    }
+                } else {
+                    showUserMessage("No detections found or processing issue.", "info");
+                }
+            } catch (error) {
+                console.error('Error processing images:', error);
+                showUserMessage(`Error processing: ${error.message}`, "error");
+                // If processing failed, maybe clear "processed" status from thumbnails
+                imageIds.forEach(id => {
+                    const thumb = document.querySelector(`.image-item[data-image-id="${id}"]`);
+                    if (thumb) thumb.classList.remove('processed');
+                });
+
+            } finally {
+                toggleLoading(false);
+            }
+        }
+
+        function updateThumbnailsAsProcessed(processedImages) {
+            processedImages.forEach(img => {
+                const imageItem = document.querySelector(`.image-item[data-image-id="${img.id}"]`);
+                if (imageItem) {
+                    imageItem.classList.add('processed');
+                    // Optionally update thumbnail if backend could return new one (not in current setup)
+                }
+            });
+        }
+
+        async function displayProcessedImage(imageId) {
+            activeImageId = imageId; // Set as active
+            // Highlight active thumbnail
+            document.querySelectorAll('.image-item').forEach(item => item.classList.remove('active-thumbnail'));
+            const activeThumb = document.querySelector(`.image-item[data-image-id="${imageId}"]`);
+            if (activeThumb) activeThumb.classList.add('active-thumbnail');
+
+            try {
+                // Fetch full session data to get the specific image's processed details
+                // This ensures we always have the latest processed data for the selected image
+                const response = await fetch(`/images/${sessionId}`);
+                if (!response.ok) throw new Error("Could not fetch image data.");
+                const data = await response.json();
+                const imageToDisplay = data.images.find(img => img.id === imageId);
+
+                if (imageToDisplay && imageToDisplay.processed) {
+                    mainImage.src = `data:image/png;base64,${imageToDisplay.processed}`;
+                    mainImage.style.display = 'block';
+                    mainImagePlaceholder.style.display = 'none';
+
+                    let prepTimeHtml = '';
+                    if (imageToDisplay.preprocessing_time) {
+                        prepTimeHtml = ` | <strong>Prep:</strong> ${imageToDisplay.preprocessing_time}`;
+                    }
+
+                    detectionsSummary.innerHTML = `
+                        <p><strong>File:</strong> ${imageToDisplay.filename} | <strong>Model:</strong> ${modelChoice.options[modelChoice.selectedIndex].text.split('(')[0].trim()} ${prepTimeHtml} | <strong>Infer:</strong> ${imageToDisplay.inference_time}</p>
+                        <div class="detection-pills-container">
+                            ${(imageToDisplay.detections && imageToDisplay.detections.length > 0) ?
+                                imageToDisplay.detections.map(det => `
+                                <span class="detection-pill" style="--pill-color: ${det.color};">
+                                    ${det.class_name} (${det.confidence})
+                                </span>`).join('') :
+                                '<span class="text-muted-color">No detections for this image.</span>'
+                            }
+                        </div>
+                    `;
+                } else if (imageToDisplay) { // Image exists but not processed / processed data missing
+                     mainImage.style.display = 'none';
+                     mainImagePlaceholder.style.display = 'block';
+                     mainImagePlaceholder.textContent = `Image "${imageToDisplay.filename}" is not processed or data is unavailable. Try processing again.`;
+                     detectionsSummary.innerHTML = '';
+                } else { // Image ID not found
+                    mainImage.style.display = 'none';
+                    mainImagePlaceholder.style.display = 'block';
+                    mainImagePlaceholder.textContent = 'Selected image data not found.';
+                    detectionsSummary.innerHTML = '';
+                }
+            } catch (error) {
+                console.error('Error loading image for display:', error);
+                showUserMessage(`Error displaying image: ${error.message}`, 'error');
+                mainImage.style.display = 'none';
+                mainImagePlaceholder.style.display = 'block';
+                mainImagePlaceholder.textContent = 'Error loading image. Check console.';
+                detectionsSummary.innerHTML = '';
+            }
+        }
+
+
+        async function clearAll() {
+            if (isProcessing) {
+                 showUserMessage("Cannot clear while processing.", "warn");
+                 return;
+            }
+            try {
+                const response = await fetch(`/clear/${sessionId}`, { method: 'DELETE' });
+                if (!response.ok) throw new Error(`Clear failed: ${response.statusText}`);
+
+                imagesContainer.innerHTML = '';
+                mainImage.style.display = 'none';
+                mainImagePlaceholder.style.display = 'block';
+                mainImagePlaceholder.textContent = 'Upload images and select a thumbnail to view results.';
+                detectionsSummary.innerHTML = '';
+                uploadedImageIds.clear();
+                activeImageId = null;
+                fileCountDisplay.textContent = 'No files chosen';
+                fileInput.value = ''; // Reset file input
+                showUserMessage("All images cleared.", "info");
+            } catch (error) {
+                console.error('Error clearing images:', error);
+                showUserMessage(`Error clearing: ${error.message}`, "error");
+            }
+        }
+
+        async function saveAllImages() {
+            if (isProcessing) {
+                 showUserMessage("Cannot save while processing.", "warn");
+                 return;
+            }
+            if (uploadedImageIds.size === 0) {
+                showUserMessage("No images to save.", "info");
+                return;
+            }
+
+            toggleLoading(true, "Saving...");
+            try {
+                const formData = new FormData();
+                formData.append('session_id', sessionId);
+                formData.append('model_choice', document.getElementById('model_choice').value); // Pass current model for naming
+                const response = await fetch('/save/', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.status === 'success' && data.saved && data.saved.length > 0) {
+                    showUserMessage(`${data.saved.length} image(s) saved successfully!`, "info");
+                } else if (data.status === 'success') {
+                    showUserMessage("No processed images were available to save.", "info");
+                } else {
+                    showUserMessage(data.detail || "Failed to save images.", "error");
+                }
+            } catch (error) {
+                console.error('Error saving images:', error);
+                showUserMessage(`Error saving: ${error.message}`, "error");
+            } finally {
+                toggleLoading(false, "Save Processed");
+            }
+        }
+
+        // Initial setup if there are pre-loaded values (e.g. from server-side render with error)
+        document.addEventListener('DOMContentLoaded', () => {
+            if (confidenceSlider) { // Ensure slider value display is correct on load
+                 confidenceValueDisplay.textContent = parseFloat(confidenceSlider.value).toFixed(2);
+            }
+            // Any other initial UI setup can go here.
+        });
+
+        // Add change listeners for preprocessing checkboxes to trigger re-processing
+        [applyDenoiseCheckbox, applyContrastCheckbox, applySharpenCheckbox].forEach(checkbox => {
+            if (checkbox) {
+                checkbox.onchange = async function() {
+                    if (uploadedImageIds.size > 0) {
+                        await processUploadedImages(Array.from(uploadedImageIds), "Preprocessing option changed");
+                    }
+                }
+            }
+        });
+
+    </script>
+</body>
+</html>

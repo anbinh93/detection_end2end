@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detection Result</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Detection Result</h1>
+
+        {% if error_message %}
+            <p class="error">{{ error_message }}</p>
+        {% elif image_data %}
+            <div class="result-info">
+                <p><strong>Model:</strong> {{ model_used }}</p>
+                <p><strong>Inference Time:</strong> {{ inference_time }}</p>
+                <p><strong>Original File:</strong> {{ original_filename }}</p>
+            </div>
+
+            <div class="image-container">
+                <img src="data:image/png;base64,{{ image_data }}" alt="Detected Objects">
+            </div>
+
+            <h3>Detected Objects:</h3>
+            {% if detections %}
+                <ul>
+                    {% for det in detections %}
+                        <li>{{ det }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No objects detected or model did not return detections.</p>
+            {% endif %}
+        {% else %}
+            <p>No image data to display. An error might have occurred.</p>
+        {% endif %}
+
+        <p><a href="/">Upload another image</a></p>
+    </div>
+</body>
+</html>
