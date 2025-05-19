@@ -23,28 +23,28 @@ This web application allows users to upload images and detect common objects usi
 
 ## Project Structure
 DETECTION_END2END/
-├── CKPT/ # Directory for model checkpoint files (.pt, .pth)
-│ └── detr-r101-2c7b67e5.pth
-  └── YOLOv8n.pt
-  └── YOLOv11n.pt
-├── main.py # FastAPI application logic, API endpoints
-├── model.py # Custom DETR model loader
-├── preprocessing.py # Image preprocessing functions (OpenCV)
+├── CKPT/                  # Model checkpoint files (.pt, .pth)
+│   ├── detr-r101-2c7b67e5.pth
+│   ├── YOLOv8n.pt
+│   └── YOLOv11n.pt
+├── main.py                # FastAPI application logic, API endpoints
+├── model.py               # Custom DETR model loader
+├── preprocessing.py       # Image preprocessing functions (OpenCV)
 ├── templates/
-│ ├── index.html # Main application page
-│ └── result.html # (Legacy, main UI now consolidated in index.html)
+│   ├── index.html         # Main application page (UI)
+│   └── result.html        # (Legacy, main UI now in index.html)
 ├── static/
-│ └── style.css # CSS for styling
-├── uploads/ # (Optional) Default directory for original uploads (if saved)
-├── detected_images/ # Directory where processed images are saved
-├── colors.json # (Optional) Custom color palette for bounding boxes
-└── requirements.txt # Python dependencies
+│   └── style.css          # CSS for styling
+├── uploads/               # (Optional) Folder for original uploaded images
+├── detected_images/       # Folder for processed/result images
+├── colors.json            # (Optional) Color palette for bounding boxes
+└── requirements.txt       # Python dependencies
 
 ## Setup and Installation
 
 1.  **Clone the Repository:**
     ```bash
-    git clone <repository_url>
+    git clone <https://github.com/anbinh93/detection_end2end>
     cd DETECTION_END2END
     ```
 
