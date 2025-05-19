@@ -1,4 +1,3 @@
-# preprocessing.py
 import cv2
 import numpy as np
 
@@ -6,10 +5,6 @@ def denoise_image(image_np: np.ndarray) -> np.ndarray:
     """
     Applies Non-Local Means Denoising to a BGR image.
     """
-    # Parameters: h (luminance component), hColor (color components),
-    # templateWindowSize, searchWindowSize
-    # Smaller h/hColor values mean stronger denoising but more detail loss.
-    # Larger window sizes are slower but can be more effective.
     denoised_image = cv2.fastNlMeansDenoisingColored(image_np, None, h=10, hColor=10, templateWindowSize=7, searchWindowSize=21)
     return denoised_image
 
@@ -21,9 +16,7 @@ def enhance_contrast_clahe(image_np: np.ndarray) -> np.ndarray:
     lab = cv2.cvtColor(image_np, cv2.COLOR_BGR2LAB)
     l_channel, a_channel, b_channel = cv2.split(lab)
 
-    # Apply CLAHE to L-channel
-    # clipLimit: Threshold for contrast limiting.
-    # tileGridSize: Size of grid for histogram equalization.
+
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     cl = clahe.apply(l_channel)
 
@@ -64,14 +57,12 @@ def preprocess_image(image_pil, apply_denoise=False, apply_contrast=False, apply
         processed_image_np = enhance_contrast_clahe(processed_image_np)
 
     if apply_sharpen:
-        # Sharpening is often best applied after denoising and contrast enhancement
-        # to avoid amplifying noise made more visible by contrast adjustments.
+
         processed_image_np = sharpen_image(processed_image_np)
 
-    # Convert back to PIL Image (RGB)
     processed_image_rgb = cv2.cvtColor(processed_image_np, cv2.COLOR_BGR2RGB)
     
-    from PIL import Image # Local import to avoid circular dependency if this were in main
+    from PIL import Image 
     final_pil_image = Image.fromarray(processed_image_rgb)
     
     return final_pil_image

@@ -22,55 +22,32 @@ def load_detr_from_local_pth(model_path: Path, device: torch.device):
     try:
         print(f"Attempting to load DETR model from local path: {model_path}...")
 
-        # Load the processor using the default model name
-        # The processor is not typically part of the .pth file
         processor = DetrImageProcessor.from_pretrained(DEFAULT_DETR_MODEL_NAME)
-
-        # Initialize the model architecture from the default pre-trained model name
-        # This ensures the architecture matches the weights we are about to load.
-        # We load the state_dict into this architecture.
         model = DetrForObjectDetection.from_pretrained(DEFAULT_DETR_MODEL_NAME, ignore_mismatched_sizes=True)
         
         # Load the state dictionary from the .pth file
         state_dict = torch.load(model_path, map_location=device)
         
-        # If the .pth file contains the full model, it might be under a 'model' key
-        # or it might be the state_dict directly. Common for HuggingFace or Timm.
-        # Check if 'model' key exists (common in checkpoints saved during training)
+
         if 'model' in state_dict:
             state_dict = state_dict['model']
-        # Some checkpoints might have keys prefixed with 'model.'
-        # We need to strip this prefix if the model architecture doesn't expect it.
-        # Example: if keys are 'model.conv1.weight' but model expects 'conv1.weight'
-        # This is a common adjustment.
-        
-        # Create a new state_dict without the 'model.' prefix if present
+
         new_state_dict = {}
         has_model_prefix = any(key.startswith("model.") for key in state_dict.keys())
 
-        if has_model_prefix: # Heuristic: if any key starts with "model.", assume all relevant keys do.
+        if has_model_prefix: 
             for key, value in state_dict.items():
                 if key.startswith("model."):
                     new_state_dict[key[len("model."):]] = value
-                else: # Keep other keys if any (e.g. EMA weights, optimizer state - though we only need model)
-                    new_state_dict[key] = value # This might not be needed if it's just model weights
+                else: 
+                    new_state_dict[key] = value 
         else:
             new_state_dict = state_dict
-
-        # It's also possible the .pth file is from a different DETR variant or was saved differently.
-        # Sometimes, the issue is with the final classification head if number of classes differ.
-        # `load_state_dict` has a `strict` parameter. If False, it allows partial loads.
-        # For DETR, the classfier layer is `class_labels_classifier`
-        
-        # Before loading, let's check if the number of classes in the checkpoint matches the model config.
-        # The classifier weights are typically:
-        # 'class_labels_classifier.weight' and 'class_labels_classifier.bias'
         num_classes_in_config = model.config.num_labels
         
-        # Check for classifier weights in the state_dict
         classifier_weight_key = None
         for key in new_state_dict.keys():
-            if 'class_labels_classifier.weight' in key: # could be nested e.g. model.class_labels_classifier.weight
+            if 'class_labels_classifier.weight' in key: 
                  classifier_weight_key = key
                  break
         

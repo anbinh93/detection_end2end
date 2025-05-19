@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: .  # Dockerfile is in the current directory
+      dockerfile: Dockerfile
+    container_name: object_detection_app
+    ports:
+      - "8000:8000"  # Map host port 8000 to container port 8000
+    volumes:
+      # Mount the CKPT directory from host to container
+      # This allows you to add/update models on your host machine
+      # and they will be available in the container without rebuilding the image.
+      # Models initially copied into the image will be overlaid if this volume is mounted.
+      - ./CKPT:/app/CKPT
+
+      # Mount uploads directory (useful for persistence if app saves originals)
+      - ./uploads:/app/uploads
+
+      # Mount detected_images directory (for persistent output)
+      - ./detected_images:/app/detected_images
+
+      # (Optional) Mount your application code for live development
+      # This will override the code copied into the image.
+      # Great for development, but remove/comment out for production builds.
+      # - .:/app  # Mounts the entire current directory to /app in container
+
+    environment:
+      # You can set environment variables here if needed by your app
+      # - MY_VARIABLE=my_value
+      - PYTHONUNBUFFERED=1 # Already in Dockerfile, but can be set here too
+
+    # (Optional) GPU Support - Requires NVIDIA Container Toolkit
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1 # or 'all'
+    #           capabilities: [gpu]
+    # For older docker-compose versions or without Swarm mode:
+    # runtime: nvidia # (Deprecated in newer Docker versions)
+    # Or use environment variables like NVIDIA_VISIBLE_DEVICES=all
+
+    # Healthcheck (optional)
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s # Give time for models to load
